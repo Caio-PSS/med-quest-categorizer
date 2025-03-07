@@ -17,8 +17,7 @@ if (isMainThread) {
 
       const workers = [];
       for (let offset = 0; offset < total; offset += BATCH_SIZE) {
-        const release = await semaphore.acquire();
-        console.log(typeof release);
+        const [_, release] = await semaphore.acquire();
         workers.push(
           new Promise((resolve) => {
             const worker = new Worker(__filename, {
