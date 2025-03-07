@@ -91,7 +91,7 @@ if (isMainThread) {
           })),
           categories: categories
         }, {
-          timeout: 60000,
+          timeout: 600000,
           validateStatus: () => true // Aceita todos os status codes
         });
   
