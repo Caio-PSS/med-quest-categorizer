@@ -1,6 +1,8 @@
+import torch  # <-- Adicione esta linha
 from flask import Flask, request, jsonify
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-import torch
+import re
+import json
 
 app = Flask(__name__)
 
