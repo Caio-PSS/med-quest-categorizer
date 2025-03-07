@@ -17,44 +17,35 @@ login(token="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")
 model_id = "mistralai/Mistral-7B-Instruct-v0.3"
 
 def load_model():
-    torch.backends.cudnn.benchmark = True
-    tokenizer = None
-    
     try:
-        # Tentativa com Flash Attention 2
         model = AutoModelForCausalLM.from_pretrained(
             model_id,
             torch_dtype=torch.float16,
-            device_map="auto",
+            device_map="auto",  # Usará automaticamente as 2 GPUs
             attn_implementation="flash_attention_2",
-            _attn_implementation="flash_attention_2"
+            max_memory={0: "22GiB", 1: "22GiB"},  # Reserva 2GB por GPU para sistema
+            offload_folder="./offload",
+            rope_scaling={"type": "dynamic", "factor": 2.0}
         )
-        print("✓ Flash Attention 2 ativado")
     except Exception as e:
-        print(f"⚠️ Falha no Flash Attention 2: {str(e)}")
-        try:
-            # Fallback para SDPA (Scaled Dot Product Attention)
-            model = AutoModelForCausalLM.from_pretrained(
-                model_id,
-                torch_dtype=torch.float16,
-                device_map="auto",
-                attn_implementation="sdpa"
-            )
-            print("✓ SDPA ativado como fallback")
-        except Exception as e:
-            print("⚠️ Fallback para implementação padrão")
-            model = AutoModelForCausalrained(model_id, device_map="auto")
+        print(f"Erro Flash Attention: {e}")
+        model = AutoModelForCausalLM.from_pretrained(
+            model_id,
+            device_map="auto",
+            load_in_8bit=True,
+            torch_dtype=torch.bfloat16
+        )
 
-    # Configuração do Tokenizer
     tokenizer = AutoTokenizer.from_pretrained(
         model_id,
         padding_side='left',
-        use_fast=False,
-        legacy=False
+        model_max_length=1024,  # Redução para prevenir overflow
+        truncation_side='right'
     )
     
     if tokenizer.pad_token is None:
         tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+        model.resize_token_embeddings(len(tokenizer))
     
     return model, tokenizer
 
@@ -76,29 +67,24 @@ def categorize():
         return jsonify({"error": "Erro interno"}), 500
 
 def process_batch(questions, categories):
-    prompts = [build_prompt(q, categories) for q in questions]
-    
-    # Tokenização do batch completo
-    inputs = tokenizer(
-        prompts,
-        return_tensors="pt",
-        padding=True,
-        truncation=True,
-        max_length=2048,
-        add_special_tokens=True
-    ).to(model.device)
-
-    # Geração sem o parâmetro batch_size
-    outputs = model.generate(
-        **inputs,
-        max_new_tokens=256,
-        temperature=0.1,
-        top_p=0.95,
-        repetition_penalty=1.15,
-        do_sample=True,
-        pad_token_id=tokenizer.pad_token_id,
-        use_cache=True
+    batch_size = min(
+        len(questions),
+        int(48 * (torch.cuda.mem_get_info(0)[0]/1e9)),  # Ajuste dinâmico pela memória
+        64  # Máximo absoluto
     )
+    
+    # Divisão automática entre GPUs
+    with torch.cuda.amp.autocast(dtype=torch.float16):
+        outputs = model.generate(
+            **inputs,
+            max_new_tokens=256,
+            temperature=0.1,
+            top_p=0.95,
+            repetition_penalty=1.15,
+            num_beams=2,  # Balanceamento entre velocidade/qualidade
+            do_sample=True,
+            use_cache=True
+        )
     
     return [parse_response(tokenizer.decode(o, skip_special_tokens=True)) for o in outputs]
 
