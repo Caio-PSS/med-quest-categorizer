@@ -5,6 +5,9 @@ const axios = require('axios');
 const BATCH_SIZE = 500;
 const API_ENDPOINT = 'http://localhost:8888/categorize'; // Porta corrigida para 8888
 
+const { Semaphore } = require('async-mutex');
+const semaphore = new Semaphore(4); // Limitar concorrência
+
 // Main thread logic
 if (isMainThread) {
   (async () => {
@@ -14,16 +17,15 @@ if (isMainThread) {
 
       const workers = [];
       for (let offset = 0; offset < total; offset += BATCH_SIZE) {
+        const release = await semaphore.acquire();
         workers.push(
-          new Promise((resolve, reject) => {
+          new Promise((resolve) => {
             const worker = new Worker(__filename, {
               workerData: { offset, limit: BATCH_SIZE }
             });
-
-            worker.on('message', resolve);
-            worker.on('error', reject);
-            worker.on('exit', (code) => {
-              if (code !== 0) reject(new Error(`Worker parou com código ${code}`));
+            worker.on('message', () => {
+              release();
+              resolve();
             });
           })
         );
