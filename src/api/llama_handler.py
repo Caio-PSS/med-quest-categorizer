@@ -77,8 +77,8 @@ def categorize():
 
 def process_batch(questions, categories):
     prompts = [build_prompt(q, categories) for q in questions]
-    batch_size = min(16, len(prompts))
     
+    # Tokenização do batch completo
     inputs = tokenizer(
         prompts,
         return_tensors="pt",
@@ -87,7 +87,8 @@ def process_batch(questions, categories):
         max_length=2048,
         add_special_tokens=True
     ).to(model.device)
-    
+
+    # Geração sem o parâmetro batch_size
     outputs = model.generate(
         **inputs,
         max_new_tokens=256,
@@ -95,7 +96,6 @@ def process_batch(questions, categories):
         top_p=0.95,
         repetition_penalty=1.15,
         do_sample=True,
-        batch_size=batch_size,
         pad_token_id=tokenizer.pad_token_id,
         use_cache=True
     )

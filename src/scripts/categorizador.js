@@ -4,7 +4,7 @@ const axios = require('axios');
 
 const BATCH_SIZE = 500;
 const API_ENDPOINT = 'http://localhost:8888/categorize';
-const API_BATCH_SIZE = 8; // Ajuste conforme sua GPU
+const API_BATCH_SIZE = 4; // Ajuste conforme sua GPU
 
 const { Semaphore } = require('async-mutex');
 const semaphore = new Semaphore(4);
