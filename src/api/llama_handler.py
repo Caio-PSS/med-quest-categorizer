@@ -2,23 +2,26 @@
 import torch
 from flask import Flask, request, jsonify
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from huggingface_hub import login
 import re
 import json
 
 app = Flask(__name__)
 
-# Configuração Otimizada para Mistral
-MODEL_ID = "mistralai/Mistral-7B-Instruct-v0.3"
+# Autenticação
+login(token="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")  # Substitua pelo seu token
+
+# Configuração do Modelo
+model_id = "mistralai/Mistral-7B-Instruct-v0.3"
 
 def load_model():
     model = AutoModelForCausalLM.from_pretrained(
-        MODEL_ID,
+        model_id,
         device_map="auto",
         torch_dtype=torch.float16,
-        attn_implementation="flash_attention_2"  # Otimização para GPUs NVIDIA
+        trust_remote_code=True
     )
-    
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
     return model, tokenizer
 
 model, tokenizer = load_model()
