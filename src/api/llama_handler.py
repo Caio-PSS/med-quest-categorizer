@@ -1,74 +1,77 @@
-import torch  # <-- Adicione esta linha
+import torch
 from flask import Flask, request, jsonify
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer
 import re
 import json
 
 app = Flask(__name__)
 
-# Configuração do Modelo
+# Configuração do Modelo Mistral
 def load_model():
-    quantization_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_compute_dtype=torch.float16,
-        bnb_4bit_quant_type="nf4"
-    )
+    model_id = "mistralai/Mistral-7B-Instruct-v0.3"
     
     model = AutoModelForCausalLM.from_pretrained(
-        "meta-llama/Meta-Llama-3-8B",
+        model_id,
         device_map="auto",
-        quantization_config=quantization_config,
-        torch_dtype=torch.float16
+        torch_dtype=torch.float16,
+        trust_remote_code=True
     )
     
-    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Meta-Llama-3-8B")
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
     return model, tokenizer
 
 model, tokenizer = load_model()
 
 @app.route('/categorize', methods=['POST'])
 def categorize():
-    data = request.json
-    prompt = build_prompt(data['question'], data['categories'])
+    try:
+        data = request.json
+        prompt = build_prompt(data['question'], data['categories'])
+        
+        inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+        outputs = model.generate(**inputs, max_new_tokens=200)
+        
+        response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        return jsonify(parse_response(response))
     
-    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-    outputs = model.generate(**inputs, max_new_tokens=200)
-    
-    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    return jsonify(parse_response(response))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 def build_prompt(question, categories):
-    return f"""
-    [ENUNCIADO]: {question['enunciado']}
-    [ALTERNATIVAS]: {question['alternativas']}
-    [CATEGORIAS]: {categories}
-    [FORMATO]: {{"categoria": "", "subtema": ""}}
-    """
+    return f"""<s>[INST] 
+    Classifique esta questão médica usando apenas estas categorias:
+    {json.dumps(categories, indent=2)}
+    
+    Dados da Questão:
+    - Enunciado: {question['enunciado']}
+    - Alternativas: {question['alternativas']}
+    
+    Formato exigido (JSON válido):
+    {{
+        "categoria": "Nome exato da categoria",
+        "subtema": "Subcategoria correspondente"
+    }}
+    [/INST]</s>"""
 
 def parse_response(response_text):
     try:
-        # Extrai o JSON da resposta usando regex
-        json_str = re.search(r'\{.*\}', response_text, re.DOTALL).group()
+        # Extrai JSON usando delimitadores claros
+        json_str = re.search(r'\{[^{}]*\}', response_text).group()
         parsed = json.loads(json_str)
         
-        # Validação básica
-        if not all(key in parsed for key in ['categoria', 'subtema']):
-            raise ValueError("Missing required fields")
-            
         return {
-            "categoria": parsed['categoria'],
-            "subtema": parsed['subtema'],
+            "categoria": parsed.get('categoria', 'Erro'),
+            "subtema": parsed.get('subtema', 'Campo não encontrado'),
             "confianca": parsed.get('confianca', 'Media'),
-            "racional": parsed.get('racional', '')
+            "raw_response": response_text  # Para debug
         }
         
-    except (AttributeError, json.JSONDecodeError, ValueError) as e:
+    except Exception as e:
         return {
-            "categoria": "Erro",
+            "categoria": "Erro de análise",
             "subtema": str(e),
-            "confianca": "Baixa",
-            "racional": "Falha no parsing da resposta"
+            "confianca": "Baixa"
         }
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(host='0.0.0.0', port=8888)  # Usando a porta 8888 conforme solicitado
