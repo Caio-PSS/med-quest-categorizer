@@ -4,4 +4,3 @@ torch==2.4.0
 accelerate==0.30.0
 bitsandbytes==0.43.1
 b2sdk==2.0.0  # Backblaze B2
-sqlite3==2.6.0
