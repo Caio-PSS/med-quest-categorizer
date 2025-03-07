@@ -11,6 +11,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from huggingface_hub import login
 import re
 import json
+from concurrent.futures import ThreadPoolExecutor  # Import faltante
 
 app = Flask(__name__)
 
@@ -109,7 +110,7 @@ def process_batch(questions, categories):
         )
 
     # Decodificação assíncrona
-    return [parse_response_safe(text) for text in tokenizer.batch_decode(outputs, skip_special_tokens=True)]
+    return [parse_response(text) for text in tokenizer.batch_decode(outputs, skip_special_tokens=True)]
 
 
 def build_prompt(question, categories):
