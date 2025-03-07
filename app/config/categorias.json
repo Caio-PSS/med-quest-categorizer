@@ -1,0 +1,106 @@
+{
+    "Nefrologia": [
+      "Glomerulopatias I - Nefrítica",
+      "Glomerulopatias I - Alterações Assintomáticas",
+      "Glomerulopatias I - GNRP",
+      "Glomerulopatias II - Síndrome Nefrótica",
+      "Glomerulopatias II - Glomerulopatias nas Desordens Sistêmicas",
+      "Doenças Tubulointersticiais e Vasculares Renais",
+      "Distúrbio Hidroeletrolítico",
+      "Distúrbio Ácido-Básico",
+      "Insuficiência Renal",
+      "Nefrolitíase",
+      "Câncer de Próstata"
+    ],
+    "Cirurgia": [
+      "Trauma I - Primeiro Atendimento, Cabeça e Tórax",
+      "Trauma II - Abdômen e TCE",
+      "Preparo Pré-operatório, Risco Cirúrgico e Complicações em Cirurgia",
+      "Hérnias da Parede Abdominal",
+      "Cicatrização",
+      "Queimadura",
+      "REMIT",
+      "Especialidade Cirúrgica - Parte I",
+      "Especialidade Cirúrgica - Parte II"
+    ],
+    "Ginecologia": [
+      "Ciclo Menstrual e Anticoncepção",
+      "Amenorreia e Ovário Policístico",
+      "Hemorragia, Mioma e Endometriose",
+      "Climatério, Distopia e Incontinência Urinária",
+      "Doença das Mamas e Ovários",
+      "Lesões Precursoras, Câncer de Colo Uterino e Endométrio",
+      "Infecções Sexualmente Transmissíveis (IST)"
+    ],
+    "Obstetrícia": [
+      "Diagnóstico de Gravidez, Modificações Gerais do Organismo Materno, Pré-natal",
+      "Assistência Pré-natal, Aconselhamento Genético",
+      "Mecanismo do Parto",
+      "Assistência Clínica ao Parto",
+      "Amniorrexe Prematura",
+      "Sangramentos da Primeira Metade da Gravidez - Abortamento, Prenhez Ectópica, Neoplasia Trofoblástica Gestacional, Doença Hemolítica Perinatal",
+      "Sangramentos da Segunda Metade da Gravidez - Descolamento Prematuro de Placenta, Inserção Viciosa de Placenta, Rotura de Vasa Prévia",
+      "Doença Hipertensiva Específica da Gravidez",
+      "Diabetes e Gravidez",
+      "Sofrimento Fetal Agudo e Crônico",
+      "Fórcipe",
+      "Infecções Puerperais",
+      "Puerpério"
+    ],
+    "Pediatria": [
+      "Neonatologia I",
+      "Neonatologia II",
+      "Aleitamento Materno",
+      "Crescimento e Desenvolvimento Normais",
+      "Desenvolvimento e Puberdade Normal",
+      "Puberdade Precoce",
+      "Distúrbios do Crescimento - Desnutrição e Baixa Estatura",
+      "Obesidade",
+      "Imunização",
+      "Diarreia Aguda e Desidratação na Infância",
+      "Infecções Respiratórias Agudas",
+      "Doenças Exantemáticas na Infância"
+    ],
+    "Reumatologia": [
+      "Introdução à Reumatologia e Artrites - Artrite Reumatoide, Espondiloartropatias Soronegativas",
+      "Colagenoses - Lúpus Eritematoso Sistêmico, Síndrome de Sjögren, Polimiosite/Dermatomiosite, DMTC, Esclerodermia",
+      "Vasculites",
+      "Gota",
+      "Febre Reumática"
+    ],
+    "Hematologia": [
+      "Anemias",
+      "Leucemias Agudas e Crônicas",
+      "Linfomas e Mieloma Múltiplo",
+      "Distúrbios da Hemostasia"
+    ],
+    "Cardiologia": [
+      "Arritmias - Taquiarritmias",
+      "Arritmias - Bradiarritmias e PCR",
+      "Insuficiência Cardíaca",
+      "Hipertensão Arterial Sistêmica e Crise Hipertensiva",
+      "Valvopatias",
+      "Doença Arterial Coronariana - IAM e Angina"
+    ],
+    "Gastroenterologia": [
+      "Doenças do Esôfago",
+      "Doenças do Estômago",
+      "Síndrome de Má-absorção e Doença Intestinal Inflamatória",
+      "Doença Vascular dos Intestinos e Obstrução Intestinal",
+      "Diverticulose, Polipose, Câncer de Cólon, Apendicite Aguda",
+      "Pancreatite Aguda e Crônica e Câncer de Pâncreas"
+    ],
+    "Hepatologia": [
+      "Hepatites Virais",
+      "Cirrose e suas Causas",
+      "Cirrose e suas Complicações, Hipertensão Porta, Ascite, Encefalopatia",
+      "Doenças das Vias Biliares"
+    ],
+    "Endocrinologia": [
+      "Tireoide - Hipertireoidismo",
+      "Tireoide - Tireoidites e Câncer",
+      "Doenças da Supra-renal",
+      "Diabetes Mellitus"
+    ]
+  }
+  

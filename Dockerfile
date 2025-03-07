@@ -24,7 +24,11 @@ COPY . .
 # Permissões
 RUN chmod +x /app/scripts/*.sh
 
-# Portas
-EXPOSE 5000
+VOLUME /app/persistent_storage  # Garante o mount correto
 
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/supervisord.conf"]
+# Exposição de portas
+EXPOSE 8888
+EXPOSE 22
+
+# Comando de inicialização
+CMD ["bash", "-c", "npm start & python src/api/llama_handler.py --port 8888"]
