@@ -4,16 +4,16 @@ const axios = require('axios');
 
 const BATCH_SIZE = 500;
 const API_ENDPOINT = 'http://localhost:8888/categorize';
+const API_BATCH_SIZE = 8; // Ajuste conforme sua GPU
 
 const { Semaphore } = require('async-mutex');
 const semaphore = new Semaphore(4);
 
-// Main thread logic
 if (isMainThread) {
   (async () => {
     try {
       const total = await getQuestionCount();
-      console.log(`Iniciando processamento de ${total} questões...`);
+      console.log(`Processando ${total} questões com batch de ${API_BATCH_SIZE}...`);
 
       const workers = [];
       for (let offset = 0; offset < total; offset += BATCH_SIZE) {
@@ -28,7 +28,7 @@ if (isMainThread) {
               resolve();
             });
             worker.on('error', (error) => {
-              console.error(`Erro no worker: ${error.message}`);
+              console.error(`Worker error: ${error.message}`);
               release();
               resolve();
             });
@@ -37,76 +37,74 @@ if (isMainThread) {
       }
 
       await Promise.all(workers);
-      console.log('Processamento concluído com sucesso!');
+      console.log('Processamento concluído!');
       process.exit(0);
     } catch (error) {
-      console.error('Erro no processamento:', error);
+      console.error('Fatal error:', error);
       process.exit(1);
     }
   })();
 
   function getQuestionCount() {
-    const stmt = db.prepare("SELECT COUNT(*) as total FROM perguntas");
-    return stmt.get().total;
+    return db.prepare("SELECT COUNT(*) as total FROM perguntas").get().total;
   }
-} 
-// Worker thread logic
-else {
+} else {
   (async () => {
     try {
       const { offset, limit } = workerData;
       const questions = await fetchBatch(offset, limit);
       const responses = await sendToAPI(questions);
       await updateDatabase(questions, responses);
-      parentPort.postMessage(`Batch ${offset}-${offset + limit} concluído`);
+      parentPort.postMessage(`Batch ${offset}-${offset + limit} finalizado`);
     } catch (error) {
-      throw new Error(`Erro no worker: ${error.message}`);
+      throw new Error(`Worker failed: ${error.message}`);
     }
   })();
 
   async function fetchBatch(offset, limit) {
-    const stmt = db.prepare(`
+    return db.prepare(`
       SELECT p.*, r.correta, r.explicacao 
       FROM perguntas p
       JOIN respostas r ON p.id = r.id_pergunta
       LIMIT ? OFFSET ?
-    `);
-    return stmt.all(limit, offset);
+    `).all(limit, offset);
   }
 
   async function sendToAPI(questions) {
     const categories = require('../config/categorias.json');
     const responses = [];
     
-    for (const question of questions) {
+    for (let i = 0; i < questions.length; i += API_BATCH_SIZE) {
+      const batch = questions.slice(i, i + API_BATCH_SIZE);
       try {
         const payload = {
-          question: {
-            enunciado: question.enunciado,
+          questions: batch.map(q => ({
+            enunciado: q.enunciado,
             alternativas: [
-              question.alternativa_a,
-              question.alternativa_b,
-              question.alternativa_c || '',
-              question.alternativa_d || ''
+              q.alternativa_a,
+              q.alternativa_b,
+              q.alternativa_c || '',
+              q.alternativa_d || ''
             ],
-            explicacao: question.explicacao,
-            correta: question.correta
-          },
+            explicacao: q.explicacao,
+            correta: q.correta
+          })),
           categories: categories
         };
 
-        const response = await axios.post(API_ENDPOINT, payload, {
-          timeout: 30000
+        const { data } = await axios.post(API_ENDPOINT, payload, {
+          timeout: 45000,
+          headers: { 'Content-Type': 'application/json' }
         });
-        
-        responses.push(response.data);
+
+        responses.push(...data.results);
       } catch (error) {
-        console.error(`Erro na questão ID ${question.id}:`, error.message);
-        responses.push({
+        console.error(`Batch ${i}-${i+API_BATCH_SIZE} failed:`, error.message);
+        batch.forEach(() => responses.push({
           categoria: 'Erro',
-          subtema: 'Falha na API',
+          subtema: 'API Error',
           confianca: 'Baixa'
-        });
+        }));
       }
     }
     
@@ -116,17 +114,17 @@ else {
   async function updateDatabase(questions, responses) {
     const update = db.prepare(`
       UPDATE perguntas 
-      SET categoria = ?, subtema = ? 
+      SET categoria = ?, subtema = ?
       WHERE id = ?
     `);
-  
+    
     db.transaction(() => {
-      questions.forEach((question, index) => {
-        const res = responses[index];
+      questions.forEach((q, index) => {
+        const res = responses[index] || {};
         update.run(
           res.categoria || 'Sem categoria',
           res.subtema || 'Sem subtema',
-          question.id
+          q.id
         );
       });
     })();

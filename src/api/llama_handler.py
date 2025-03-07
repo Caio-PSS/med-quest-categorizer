@@ -4,23 +4,39 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from huggingface_hub import login
 import re
 import json
+import os
 
 app = Flask(__name__)
 
-# Configuração segura
+# Configurações de Performance
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+
 login(token="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")
 
-# Configuração do Modelo
 model_id = "mistralai/Mistral-7B-Instruct-v0.3"
 
 def load_model():
+    torch.backends.cudnn.benchmark = True
+    torch.backends.cuda.matmul.allow_tf32 = True
+    
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
         torch_dtype=torch.float16,
-        trust_remote_code=True,
-        device_map="auto"
+        device_map="auto",
+        attn_implementation="flash_attention_2"
     )
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_id,
+        padding_side='left',
+        use_fast=False
+    )
+    
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+    
     return model, tokenizer
 
 model, tokenizer = load_model()
@@ -30,68 +46,85 @@ def categorize():
     try:
         data = request.get_json()
         
-        # Validação reforçada
-        if not data or 'question' not in data or 'categories' not in data:
-            return jsonify({
-                "error": "Payload inválido. Campos obrigatórios: 'question', 'categories'"
-            }), 400
+        if not data or 'questions' not in data or 'categories' not in data:
+            return jsonify({"error": "Payload inválido. Campos requeridos: questions, categories"}), 400
 
-        # Construção do prompt
-        prompt = build_prompt(data['question'], data['categories'])
-        
-        # Geração da resposta
-        inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-        outputs = model.generate(
-            **inputs,
-            max_new_tokens=256,
-            temperature=0.1,
-            do_sample=True
-        )
-        
-        # Processamento da resposta
-        response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        parsed = parse_response(response)
-        
-        return jsonify(parsed), 200
+        results = process_batch(data['questions'], data['categories'])
+        return jsonify({"results": results}), 200
     
     except Exception as e:
-        app.logger.error(f"Erro interno: {str(e)}")
-        return jsonify({"error": "Erro interno no processamento"}), 500
+        app.logger.error(f"Error: {str(e)}")
+        return jsonify({"error": "Erro interno"}), 500
+
+def process_batch(questions, categories):
+    prompts = [build_prompt(q, categories) for q in questions]
+    batch_size = min(16, len(prompts))
+    
+    inputs = tokenizer(
+        prompts,
+        return_tensors="pt",
+        padding=True,
+        truncation=True,
+        max_length=2048,
+        add_special_tokens=True
+    ).to(model.device)
+    
+    outputs = model.generate(
+        **inputs,
+        max_new_tokens=256,
+        temperature=0.1,
+        top_p=0.95,
+        repetition_penalty=1.15,
+        do_sample=True,
+        batch_size=batch_size,
+        pad_token_id=tokenizer.pad_token_id,
+        use_cache=True
+    )
+    
+    return [parse_response(tokenizer.decode(o, skip_special_tokens=True)) for o in outputs]
 
 def build_prompt(question, categories):
-    return f"""<s>[INST] 
+    return f"""<s>[INST]
     ### Tarefa:
-    Classifique esta questão médica usando EXCLUSIVAMENTE as categorias fornecidas.
+    Classifique esta questão médica usando APENAS estas categorias:
 
-    ### Dados da Questão:
+    ### Dados:
     Enunciado: {question.get('enunciado', '')}
     Alternativas: {", ".join(question.get('alternativas', []))}
-    Explicação Atual: {question.get('explicacao', '')}
+    Explicação: {question.get('explicacao', '')}
 
-    ### Categorias Disponíveis:
+    ### Categorias:
     {json.dumps(categories, indent=4)}
 
-    ### Formato de Resposta (JSON):
+    ### Formato:
     {{
         "categoria": "Categoria Principal",
-        "subtema": "Subcategoria Específica",
+        "subtema": "Subcategoria",
         "confianca": "Alta/Media/Baixa"
     }}
     [/INST]</s>"""
 
-def parse_response(response_text):
+def parse_response(text):
     try:
-        json_match = re.search(r'\{.*?\}', response_text, re.DOTALL)
-        if json_match:
-            result = json.loads(json_match.group())
-            return {
-                "categoria": result.get("categoria", "Erro"),
-                "subtema": result.get("subtema", "Sem subtema"),
-                "confianca": result.get("confianca", "Baixa")
-            }
-        return {"categoria": "Erro", "subtema": "Formato inválido", "confianca": "Baixa"}
+        match = re.search(r'\{.*?\}', text, re.DOTALL)
+        if not match:
+            return error_response("Formato inválido")
+        
+        result = json.loads(match.group())
+        return {
+            "categoria": result.get("categoria", "Erro"),
+            "subtema": result.get("subtema", "Sem subtema"),
+            "confianca": result.get("confianca", "Baixa")
+        }
     except Exception as e:
-        return {"categoria": "Erro", "subtema": f"Erro de parsing: {str(e)}", "confianca": "Baixa"}
+        return error_response(f"Erro JSON: {str(e)}")
+
+def error_response(message):
+    return {
+        "categoria": "Erro",
+        "subtema": message,
+        "confianca": "Baixa"
+    }
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8888, threaded=True, debug=False)
