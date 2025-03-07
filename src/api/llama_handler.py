@@ -53,8 +53,7 @@ def load_model():
             model.resize_token_embeddings(len(tokenizer))
 
 # Carregamento seguro do modelo
-@app.before_first_request
-def initialize_model():
+with app.app_context():
     login(token="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")
     load_model()
 
