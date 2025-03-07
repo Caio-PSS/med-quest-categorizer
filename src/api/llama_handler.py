@@ -1,4 +1,3 @@
-# src/api/llama_handler.py
 import torch
 from flask import Flask, request, jsonify
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -8,17 +7,18 @@ import json
 
 app = Flask(__name__)
 
-login(token="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")  # Substitua pelo seu token
+# 🔒 Substitua pelo seu token seguro
+login(token="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")
 
-# Configuração do Modelo
+# 🔥 Configuração do Modelo otimizada para múltiplas GPUs
 model_id = "mistralai/Mistral-7B-Instruct-v0.3"
 
 def load_model():
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
-        device_map="auto",
         torch_dtype=torch.float16,
-        trust_remote_code=True
+        trust_remote_code=True,
+        device_map="balanced_low_0"  # 🔥 Distribui entre as GPUs automaticamente
     )
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     return model, tokenizer
@@ -29,6 +29,10 @@ model, tokenizer = load_model()
 def categorize():
     try:
         data = request.get_json()
+        
+        if not data or 'question' not in data or 'categories' not in data:
+            return jsonify({"error": "Requisição inválida. Certifique-se de incluir 'question' e 'categories'."}), 400
+
         prompt = build_prompt(data['question'], data['categories'])
         
         inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
@@ -63,20 +67,13 @@ def build_prompt(question, categories):
 
 def parse_response(response_text):
     try:
-        json_str = re.search(r'\{[^{}]*\}', response_text).group()
-        result = json.loads(json_str)
-        
-        return {
-            "categoria": result.get("categoria", "Erro"),
-            "subtema": result.get("subtema", "Não especificado"),
-            "confianca": result.get("confianca", "Media")
-        }
-    except Exception as e:
-        return {
-            "categoria": "Erro de análise",
-            "subtema": str(e),
-            "confianca": "Baixa"
-        }
+        json_str = re.search(r'\{.*?\}', response_text, re.DOTALL)
+        if json_str:
+            return json.loads(json_str.group())
+        else:
+            return {"categoria": "Erro", "subtema": "Nenhum JSON encontrado", "confianca": "Baixa"}
+    except json.JSONDecodeError as e:
+        return {"categoria": "Erro", "subtema": f"Erro JSON: {str(e)}", "confianca": "Baixa"}
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8888, threaded=True)
