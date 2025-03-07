@@ -90,7 +90,7 @@ else {
           correta: q.correta,
           explicacao: q.explicacao
         })),
-        categories: require('../../config/categorias.json')
+        categories: require('../config/categorias.json')
       });
       
       return response.data.results;
