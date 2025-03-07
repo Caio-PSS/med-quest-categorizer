@@ -40,11 +40,8 @@ if (isMainThread) {
   })();
 
   function getQuestionCount() {
-    return new Promise((resolve, reject) => {
-      db.get("SELECT COUNT(*) as total FROM perguntas", (err, row) => {
-        err ? reject(err) : resolve(row.total);
-      });
-    });
+    const stmt = db.prepare("SELECT COUNT(*) as total FROM perguntas");
+    return stmt.get().total;
   }
 } 
 // Worker thread logic
@@ -62,19 +59,13 @@ else {
   })();
 
   async function fetchBatch(offset, limit) {
-    return new Promise((resolve, reject) => {
-      db.all(
-        `SELECT p.*, r.correta, r.explicacao 
-         FROM perguntas p
-         JOIN respostas r ON p.id = r.id_pergunta
-         LIMIT ? OFFSET ?`,
-        [limit, offset],
-        (err, rows) => {
-          if (err) reject(err);
-          else resolve(rows);
-        }
-      );
-    });
+    const stmt = db.prepare(`
+      SELECT p.*, r.correta, r.explicacao 
+      FROM perguntas p
+      JOIN respostas r ON p.id = r.id_pergunta
+      LIMIT ? OFFSET ?
+    `);
+    return stmt.all(limit, offset);
   }
 
   async function sendToAPI(questions) {
@@ -103,26 +94,16 @@ else {
   }
 
   async function updateDatabase(questions, responses) {
-    return new Promise((resolve, reject) => {
-      db.serialize(() => {
-        db.run("BEGIN TRANSACTION");
-        
-        responses.forEach((res, idx) => {
-          db.run(
-            `UPDATE perguntas SET categoria = ?, subtema = ? WHERE id = ?`,
-            [res.categoria, res.subtema, questions[idx].id]
-          );
-        });
-
-        db.run("COMMIT", (err) => {
-          if (err) {
-            db.run("ROLLBACK");
-            reject(err);
-          } else {
-            resolve();
-          }
-        });
-      });
-    });
+    const update = db.prepare(`
+      UPDATE perguntas 
+      SET categoria = ?, subtema = ? 
+      WHERE id = ?
+    `);
+  
+    db.transaction(() => {
+      for (const [index, res] of responses.entries()) {
+        update.run(res.categoria, res.subtema, questions[index].id);
+      }
+    })();
   }
 }
