@@ -77,7 +77,7 @@ if (isMainThread) {
     for (let i = 0; i < questions.length; i += API_BATCH_SIZE) {
       const batch = questions.slice(i, i + API_BATCH_SIZE);
       try {
-        const { data } = await axios.post(API_ENDPOINT, {
+        const { data, status } = await axios.post(API_ENDPOINT, {
           questions: batch.map(q => ({
             enunciado: q.enunciado,
             alternativas: [
@@ -91,26 +91,36 @@ if (isMainThread) {
           })),
           categories: categories
         }, {
-          timeout: 600000,
-          validateStatus: () => true // Aceita todos os status codes
+          timeout: 60000,
+          validateStatus: (status) => status < 500 // Aceita todos os status < 500
         });
   
-        // Verificação adicional da resposta
-        if(!data?.results || data.results.length !== batch.length) {
-          throw new Error('Resposta da API em formato inválido');
+        // Verificação reforçada da resposta
+        if (status !== 200 || !data?.results || data.results.length !== batch.length) {
+          const errorMessage = data?.error || 'Resposta inválida da API';
+          console.error(`Erro no batch ${i}-${i+API_BATCH_SIZE}:`, {
+            status,
+            error: errorMessage,
+            received: data?.results?.length || 0,
+            expected: batch.length
+          });
+          throw new Error(`API Error: ${errorMessage}`);
         }
         
         responses.push(...data.results);
       } catch (error) {
-        console.error(`Erro no batch ${i}-${i+API_BATCH_SIZE}:`, {
+        console.error(`Erro crítico no batch ${i}-${i+API_BATCH_SIZE}:`, {
           message: error.message,
+          stack: error.stack,
           response: error.response?.data
         });
-        responses.push(...Array(batch.length).fill({
+        
+        // Preenche com respostas de erro detalhadas
+        responses.push(...batch.map(() => ({
           categoria: 'Erro',
-          subtema: 'Falha na API',
+          subtema: error.response?.data?.error || error.message.substring(0, 100),
           confianca: 'Baixa'
-        }));
+        })));
       }
     }
     

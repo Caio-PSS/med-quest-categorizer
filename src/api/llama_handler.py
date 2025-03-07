@@ -127,18 +127,24 @@ def build_prompt(question, categories):
 
 def parse_response(text):
     try:
-        match = re.search(r'\{.*?\}', text, re.DOTALL)
-        if not match:
-            return error_response("Formato inválido")
+        # Extração melhorada do JSON
+        text = text.split('[/INST]')[-1].strip()
+        json_str = re.search(r'\{[\s\S]*\}', text).group()
         
-        result = json.loads(match.group())
+        # Validação de campos obrigatórios
+        result = json.loads(json_str)
+        if not all(key in result for key in ['categoria', 'subtema', 'confianca']):
+            raise ValueError("Campos obrigatórios ausentes")
+            
+        # Normalização dos valores
         return {
-            "categoria": result.get("categoria", "Erro"),
-            "subtema": result.get("subtema", "Sem subtema"),
-            "confianca": result.get("confianca", "Baixa")
+            "categoria": str(result.get("categoria", "Erro"))[:64],
+            "subtema": str(result.get("subtema", "Sem subtema"))[:128],
+            "confianca": str(result.get("confianca", "Baixa")).lower()[:16]
         }
     except Exception as e:
-        return error_response(f"Erro JSON: {str(e)}")
+        app.logger.error(f"Erro de parsing: {str(e)} - Texto original: {text[:200]}...")
+        return error_response(f"Erro de formatação: {str(e)}")
 
 def error_response(message):
     return {
