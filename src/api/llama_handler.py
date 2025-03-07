@@ -8,7 +8,6 @@ import json
 
 app = Flask(__name__)
 
-# Autenticação
 login(token="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")  # Substitua pelo seu token
 
 # Configuração do Modelo
