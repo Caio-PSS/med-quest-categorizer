@@ -4,13 +4,14 @@ const fs = require('fs');
 
 const isProduction = process.env.NODE_ENV === 'production';
 const dbPath = isProduction
-  ? '/app/persistent_storage/questoes_medicas.db'
-  : path.join(__dirname, '..', '..', 'persistent_storage', 'questoes_medicas.db');
+  ? '/workspace/database/questoes_medicas.db'  // Caminho novo
+  : path.join(__dirname, '..', 'database', 'questoes_medicas.db');  // Caminho local
 
-// Garantir diretório existe
+// Garantir diretório existe em produção
 if (isProduction) {
   const dbDir = path.dirname(dbPath);
   if (!fs.existsSync(dbDir)) {
+    console.log(`Criando diretório persistente: ${dbDir}`);
     fs.mkdirSync(dbDir, { recursive: true });
   }
 }
