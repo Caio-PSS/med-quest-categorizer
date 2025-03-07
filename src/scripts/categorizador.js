@@ -77,7 +77,7 @@ if (isMainThread) {
     for (let i = 0; i < questions.length; i += API_BATCH_SIZE) {
       const batch = questions.slice(i, i + API_BATCH_SIZE);
       try {
-        const payload = {
+        const { data } = await axios.post(API_ENDPOINT, {
           questions: batch.map(q => ({
             enunciado: q.enunciado,
             alternativas: [
@@ -90,19 +90,25 @@ if (isMainThread) {
             correta: q.correta
           })),
           categories: categories
-        };
-
-        const { data } = await axios.post(API_ENDPOINT, payload, {
-          timeout: 45000,
-          headers: { 'Content-Type': 'application/json' }
+        }, {
+          timeout: 60000,
+          validateStatus: () => true // Aceita todos os status codes
         });
-
+  
+        // Verificação adicional da resposta
+        if(!data?.results || data.results.length !== batch.length) {
+          throw new Error('Resposta da API em formato inválido');
+        }
+        
         responses.push(...data.results);
       } catch (error) {
-        console.error(`Batch ${i}-${i+API_BATCH_SIZE} failed:`, error.message);
-        batch.forEach(() => responses.push({
+        console.error(`Erro no batch ${i}-${i+API_BATCH_SIZE}:`, {
+          message: error.message,
+          response: error.response?.data
+        });
+        responses.push(...Array(batch.length).fill({
           categoria: 'Erro',
-          subtema: 'API Error',
+          subtema: 'Falha na API',
           confianca: 'Baixa'
         }));
       }
