@@ -2,11 +2,11 @@ const { Worker, isMainThread, parentPort, workerData } = require('worker_threads
 const db = require('../database/database');
 const axios = require('axios');
 
-const BATCH_SIZE = 10;
-const API_ENDPOINT = 'http://localhost:8888/categorize'; // Porta corrigida para 8888
+const BATCH_SIZE = 500;
+const API_ENDPOINT = 'http://localhost:8888/categorize';
 
 const { Semaphore } = require('async-mutex');
-const semaphore = new Semaphore(4); // Limitar concorrência
+const semaphore = new Semaphore(4);
 
 // Main thread logic
 if (isMainThread) {
@@ -27,12 +27,18 @@ if (isMainThread) {
               release();
               resolve();
             });
+            worker.on('error', (error) => {
+              console.error(`Erro no worker: ${error.message}`);
+              release();
+              resolve();
+            });
           })
         );
       }
 
       await Promise.all(workers);
       console.log('Processamento concluído com sucesso!');
+      process.exit(0);
     } catch (error) {
       console.error('Erro no processamento:', error);
       process.exit(1);
@@ -69,28 +75,42 @@ else {
   }
 
   async function sendToAPI(questions) {
-    try {
-      const response = await axios.post(API_ENDPOINT, {
-        questions: questions.map(q => ({
-          enunciado: q.enunciado,
-          alternativas: [
-            q.alternativa_a,
-            q.alternativa_b,
-            q.alternativa_c || '',
-            q.alternativa_d || ''
-          ],
-          categoria: q.categoria,
-          correta: q.correta,
-          explicacao: q.explicacao
-        })),
-        categories: require('../config/categorias.json')
-      });
-      
-      return response.data.results;
-    } catch (error) {
-      console.error(`API Error: ${error.message}`);
-      return [];
+    const categories = require('../config/categorias.json');
+    const responses = [];
+    
+    for (const question of questions) {
+      try {
+        const payload = {
+          question: {
+            enunciado: question.enunciado,
+            alternativas: [
+              question.alternativa_a,
+              question.alternativa_b,
+              question.alternativa_c || '',
+              question.alternativa_d || ''
+            ],
+            explicacao: question.explicacao,
+            correta: question.correta
+          },
+          categories: categories
+        };
+
+        const response = await axios.post(API_ENDPOINT, payload, {
+          timeout: 30000
+        });
+        
+        responses.push(response.data);
+      } catch (error) {
+        console.error(`Erro na questão ID ${question.id}:`, error.message);
+        responses.push({
+          categoria: 'Erro',
+          subtema: 'Falha na API',
+          confianca: 'Baixa'
+        });
+      }
     }
+    
+    return responses;
   }
 
   async function updateDatabase(questions, responses) {
@@ -101,9 +121,14 @@ else {
     `);
   
     db.transaction(() => {
-      for (const [index, res] of responses.entries()) {
-        update.run(res.categoria, res.subtema, questions[index].id);
-      }
+      questions.forEach((question, index) => {
+        const res = responses[index];
+        update.run(
+          res.categoria || 'Sem categoria',
+          res.subtema || 'Sem subtema',
+          question.id
+        );
+      });
     })();
   }
 }
