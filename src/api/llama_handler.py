@@ -18,24 +18,43 @@ model_id = "mistralai/Mistral-7B-Instruct-v0.3"
 
 def load_model():
     torch.backends.cudnn.benchmark = True
-    torch.backends.cuda.matmul.allow_tf32 = True
+    tokenizer = None
     
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id,
-        torch_dtype=torch.float16,
-        device_map="auto",
-        attn_implementation="flash_attention_2"
-    )
-    
+    try:
+        # Tentativa com Flash Attention 2
+        model = AutoModelForCausalLM.from_pretrained(
+            model_id,
+            torch_dtype=torch.float16,
+            device_map="auto",
+            attn_implementation="flash_attention_2",
+            _attn_implementation="flash_attention_2"
+        )
+        print("✓ Flash Attention 2 ativado")
+    except Exception as e:
+        print(f"⚠️ Falha no Flash Attention 2: {str(e)}")
+        try:
+            # Fallback para SDPA (Scaled Dot Product Attention)
+            model = AutoModelForCausalLM.from_pretrained(
+                model_id,
+                torch_dtype=torch.float16,
+                device_map="auto",
+                attn_implementation="sdpa"
+            )
+            print("✓ SDPA ativado como fallback")
+        except Exception as e:
+            print("⚠️ Fallback para implementação padrão")
+            model = AutoModelForCausalrained(model_id, device_map="auto")
+
+    # Configuração do Tokenizer
     tokenizer = AutoTokenizer.from_pretrained(
         model_id,
         padding_side='left',
-        use_fast=False
+        use_fast=False,
+        legacy=False
     )
     
     if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
-        tokenizer.pad_token_id = tokenizer.eos_token_id
+        tokenizer.add_special_tokens({'pad_token': '[PAD]'})
     
     return model, tokenizer
 
