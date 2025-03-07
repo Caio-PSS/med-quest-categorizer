@@ -1,0 +1,18 @@
+name: Deploy to RunPod
+on: [push]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Deploy to RunPod
+        uses: runpod/serverless-deploy-action@v1
+        with:
+          api_key: ${{ secrets.RUNPOD_API_KEY }}
+          template_id: YOUR_TEMPLATE_ID_HERE  # ID real do template no RunPod
+          build_args: |
+            B2_KEY_ID=${{ secrets.B2_KEY_ID }}
+            B2_APP_KEY=${{ secrets.B2_APP_KEY }}
