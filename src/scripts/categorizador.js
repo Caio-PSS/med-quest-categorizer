@@ -18,12 +18,13 @@ if (isMainThread) {
       const workers = [];
       for (let offset = 0; offset < total; offset += BATCH_SIZE) {
         const release = await semaphore.acquire();
+        console.log(typeof release);
         workers.push(
           new Promise((resolve) => {
             const worker = new Worker(__filename, {
               workerData: { offset, limit: BATCH_SIZE }
             });
-            worker.on('message', () => {
+            worker.once('message', () => {
               release();
               resolve();
             });
