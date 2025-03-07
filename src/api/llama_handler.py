@@ -12,7 +12,7 @@ from huggingface_hub import login
 import re
 import json
 
-app = Flask(__name__)
+app = Flask(__name__)  # A variável 'app' deve existir
 
 # Configurações de Performance
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
