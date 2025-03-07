@@ -26,15 +26,17 @@ login(token="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")
 def load_model():
     torch.backends.cudnn.benchmark = True
     torch.backends.cuda.matmul.allow_tf32 = True
-    
+    torch.backends.cuda.enable_flash_sdp(True)  # Ativar Flash Attention
+
     try:
         model = AutoModelForCausalLM.from_pretrained(
             model_id,
             torch_dtype=torch.float16,
             device_map="auto",
             attn_implementation="flash_attention_2",
-            max_memory={0: "22GiB", 1: "22GiB"}
-        )
+            max_memory={0: "23GiB", 1: "23GiB"},  # Usar quase toda a VRAM
+            offload_folder="./offload",
+        ).eval()  # Modo avaliação para otimizações
     except Exception as e:
         print(f"Erro Flash Attention: {str(e)}")
         model = AutoModelForCausalLM.from_pretrained(
@@ -75,33 +77,39 @@ def categorize():
 
 
 def process_batch(questions, categories):
-    prompts = [build_prompt(q, categories) for q in questions]
+    # Pré-processamento paralelizado
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        prompts = list(executor.map(build_prompt, questions, [categories]*len(questions)))
+
+    # Configuração de batch dinâmico
+    batch_size = max(8, min(64, len(prompts)//2))  # Ajuste automático
     
     inputs = tokenizer(
         prompts,
         return_tensors="pt",
-        padding=True,
+        padding="longest",
         truncation=True,
         max_length=1024,
-        add_special_tokens=True
+        add_special_tokens=True,
+        return_attention_mask=True
     ).to(model.device)
 
-    try:
-        with torch.cuda.amp.autocast():
-            outputs = model.generate(
-                input_ids=inputs.input_ids,
-                attention_mask=inputs.attention_mask,
-                max_new_tokens=256,
-                temperature=0.1,
-                top_p=0.95,
-                repetition_penalty=1.15,
-                pad_token_id=tokenizer.pad_token_id,
-                use_cache=True
-            )
-    except RuntimeError as e:
-        return [error_response("Erro CUDA") for _ in prompts]
+    # Configuração de geração otimizada
+    with torch.inference_mode(), torch.cuda.amp.autocast():
+        outputs = model.generate(
+            **inputs,
+            max_new_tokens=256,
+            temperature=0.1,
+            top_p=0.95,
+            repetition_penalty=1.15,
+            do_sample=True,
+            num_beams=1,           # Desativar beam search para velocidade
+            use_cache=True,
+            pad_token_id=tokenizer.pad_token_id
+        )
 
-    return [parse_response_safe(tokenizer.decode(o, skip_special_tokens=True)) for o in outputs]
+    # Decodificação assíncrona
+    return [parse_response_safe(text) for text in tokenizer.batch_decode(outputs, skip_special_tokens=True)]
 
 
 def build_prompt(question, categories):
