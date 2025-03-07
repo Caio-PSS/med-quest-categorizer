@@ -1,5 +1,9 @@
 import multiprocessing
-multiprocessing.set_start_method('spawn', force=True)
+multiprocessing.set_start_method('spawn', force=True)  # Mantido como primeira linha
+
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 import torch
 from flask import Flask, request, jsonify
@@ -7,53 +11,54 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from huggingface_hub import login
 import re
 import json
-import os
 
 app = Flask(__name__)
 
 # Configurações de Performance
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["NCCL_P2P_DISABLE"] = "1"
 
-login(token="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")
-
-model_id = "mistralai/Mistral-7B-Instruct-v0.3"
+# Modificação crucial para inicialização segura
+model, tokenizer = None, None
 
 def load_model():
-    torch.backends.cudnn.benchmark = True
-    torch.backends.cuda.matmul.allow_tf32 = True
-    
-    try:
-        model = AutoModelForCausalLM.from_pretrained(
+    global model, tokenizer
+    if model is None:
+        torch.cuda.init()  # Inicialização explícita do CUDA
+        
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                model_id,
+                torch_dtype=torch.float16,
+                device_map="auto",
+                attn_implementation="flash_attention_2",
+                max_memory={0: "22GiB", 1: "22GiB"}
+            )
+        except Exception as e:
+            print(f"Erro Flash Attention: {str(e)}")
+            model = AutoModelForCausalLM.from_pretrained(
+                model_id,
+                device_map="auto",
+                load_in_8bit=True
+            )
+
+        tokenizer = AutoTokenizer.from_pretrained(
             model_id,
-            torch_dtype=torch.float16,
-            device_map="auto",
-            attn_implementation="flash_attention_2",
-            max_memory={0: "22GiB", 1: "22GiB"}
+            padding_side='left',
+            model_max_length=1024
         )
-    except Exception as e:
-        print(f"Erro Flash Attention: {str(e)}")
-        model = AutoModelForCausalLM.from_pretrained(
-            model_id,
-            device_map="auto",
-            load_in_8bit=True
-        )
+        
+        if tokenizer.pad_token is None:
+            tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+            model.resize_token_embeddings(len(tokenizer))
 
-    tokenizer = AutoTokenizer.from_pretrained(
-        model_id,
-        padding_side='left',
-        model_max_length=1024
-    )
+# Carregamento seguro do modelo
+@app.before_first_request
+def initialize_model():
+    login(token="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")
+    load_model()
+
     
-    if tokenizer.pad_token is None:
-        tokenizer.add_special_tokens({'pad_token': '[PAD]'})
-        model.resize_token_embeddings(len(tokenizer))
-    
-    return model, tokenizer
-
-model, tokenizer = load_model()
-
 @app.route('/categorize', methods=['POST'])
 def categorize():
     try:
@@ -143,4 +148,4 @@ def error_response(message):
     }
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8888, threaded=True, debug=False)
+    app.run(host='0.0.0.0', port=8888, threaded=False, debug=False)  # Desativar threading
