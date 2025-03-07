@@ -2,7 +2,7 @@ const { Worker, isMainThread, parentPort, workerData } = require('worker_threads
 const db = require('../database/database');
 const axios = require('axios');
 
-const BATCH_SIZE = 500;
+const BATCH_SIZE = 100;
 const API_ENDPOINT = 'http://localhost:8888/categorize'; // Porta corrigida para 8888
 
 const { Semaphore } = require('async-mutex');
