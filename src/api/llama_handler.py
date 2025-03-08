@@ -74,7 +74,7 @@ def categorize():
         ]
         
         if len(valid_categories) == 0:
-            return jsonify({"error": "Categorias devem conter subcategorias no formato 'Categoria - Subcategoria'"}), 400
+            return jsonify({"error": "Categorias devem seguir formato 'Categoria - Subcategoria'"}), 400
             
         if not isinstance(data.get('questions'), list) or len(data['questions']) == 0:
             return jsonify({"error": "Lista de questões inválida"}), 400
@@ -91,7 +91,7 @@ def categorize():
         if not valid_questions:
             return jsonify({"error": "Nenhuma questão válida encontrada"}), 400
 
-        results = process_batch(valid_questions, data['categories'])
+        results = process_batch(valid_questions, valid_categories)
         return jsonify({"results": results}), 200
     
     except Exception as e:
@@ -102,7 +102,7 @@ def process_batch(questions, categories):
     with ThreadPoolExecutor(max_workers=8) as executor:
         prompts = list(executor.map(build_prompt, questions, [categories]*len(questions)))
 
-    batch_size = max(4, min(32, len(prompts)//2))  # Batch size dinâmico
+    batch_size = max(4, min(32, len(prompts)//2))
     
     inputs = tokenizer(
         prompts,
@@ -127,7 +127,8 @@ def process_batch(questions, categories):
                 use_cache=True,
                 pad_token_id=tokenizer.pad_token_id,
                 eos_token_id=tokenizer.eos_token_id,
-                bad_words_ids=[[tokenizer.encode('\n')[0]]]
+                bad_words_ids=[[tokenizer.encode('\n')[0]]],
+                max_time=300
             )
     except torch.cuda.OutOfMemoryError:
         torch.cuda.empty_cache()
@@ -140,89 +141,104 @@ def build_prompt(question, categories):
         return text.replace('"', "'").replace('\n', ' ').strip()[:max_length]
     
     return f"""<s>[INST]
-    ### TAREFA CRÍTICA:
-    Gerar JSON válido seguindo STRITAMENTE estas regras:
-
-    ### REGRAS DE FORMATO:
-    1. Usar EXCLUSIVAMENTE double quotes
-    2. Sem quebras de linha no JSON
-    3. Campos OBRIGATÓRIOS: categoria, subtema, confianca
-    4. Valores permitidos para confianca: Alta, Media, Baixa
-
-    ### EXEMPLO VÁLIDO:
-    {{"categoria": "Endocrinologia", "subtema": "Diabetes Tipo 2", "confianca": "Alta"}}
+    ### FORMATO EXATO REQUERIDO:
+    {{
+        "categoria": "Categoria Principal",
+        "subtema": "Subcategoria Específica",
+        "confianca": "Alta/Media/Baixa"
+    }}
 
     ### DADOS DA QUESTÃO:
     Enunciado: {clean_text(question.get('enunciado', ''), 800)}
     Alternativas: {json.dumps([clean_text(a, 100) for a in question.get('alternativas', [])])[:400]}
     Explicação: {clean_text(question.get('explicacao', ''), 500)}
 
-    ### CATEGORIAS E SUBCATEGORIAS PERMITIDAS:
-    {json.dumps(categories, indent=2, ensure_ascii=False)[:1500]}
-    [/INST]
-    """
+    ### CATEGORIAS VÁLIDAS:
+    {', '.join(sorted(set(categories)))[:1200]}
+    [/INST]"""
 
 def parse_response(text):
     sanitized = ""
+    
     def repair_json(raw_json):
         repairs = [
-            (r'(?<!\\)\\(?!["\\/bfnrt])', ''),    # Remove escapes inválidos
-            (r',\s*}(?=\s*})', '}'),              # Corrige vírgulas finais múltiplas
-            (r'\bNaN\b', 'null'),                 # Substitui NaN por null
-            (r'\s+', ' '),                        # Compacta espaços
-            (r'([{\[,])\s*([}\]])', r'\1\2')      # Remove espaços entre delimitadores
+            (r'(?<!\\)\\(?!["\\/bfnrt])', ''),
+            (r',\s*}(?=\s*})', '}'),
+            (r'\bNaN\b', 'null'),
+            (r'\s+', ' '),
+            (r'([{\[,])\s*([}\]])', r'\1\2'),
+            (r"'", '"')
         ]
         
         for pattern, replacement in repairs:
             raw_json = re.sub(pattern, replacement, raw_json)
             
-        # Completa JSONs incompletos
         open_braces = raw_json.count('{') - raw_json.count('}')
         if open_braces > 0:
             raw_json += '}' * open_braces
             
         return raw_json.strip('`').strip()
 
-
     try:
-        # Nova regex mais robusta
-        json_match = re.search(
-            r'```json\s*({.*?})\s*```|({.*?})', 
-            text, 
-            re.DOTALL | re.IGNORECASE
-        )
+        # Pré-processamento
+        text = re.sub(r'```json|```|\*+', '', text)
+        text = text.replace('\\"', "'")
+        
+        # Extração de JSON
+        json_match = re.search(r'\{[\s\S]*\}', text, re.DOTALL)
         
         if not json_match:
-            raise ValueError("Nenhum JSON detectado")
+            raise ValueError("Nenhuma estrutura JSON detectada")
             
-        raw_json = json_match.group(1)
+        raw_json = json_match.group(0)
         sanitized = repair_json(raw_json)
 
-        # Decodificação e validação
+        # Validação
         result = json.loads(sanitized)
+        
         if not all(key in result for key in ['categoria', 'subtema', 'confianca']):
             raise ValueError("Campos obrigatórios ausentes")
             
         # Normalização
+        confianca = str(result['confianca']).lower().strip()
+        if confianca not in ['alta', 'media', 'baixa']:
+            confianca = 'baixa'
+            
         return {
             'categoria': str(result['categoria']).strip()[:64],
-            'subtema': str(result.get('subtema', '')).strip()[:128],
-            'confianca': str(result['confianca']).lower().strip()[:16]
+            'subtema': str(result['subtema']).strip()[:128],
+            'confianca': confianca[:5]
         }
         
     except Exception as e:
         error_type = type(e).__name__
+        fallback_response = None
+        
+        try:
+            last_part = re.search(r'\{.*', text, re.DOTALL)
+            if last_part:
+                sanitized = repair_json(last_part.group(0))
+                result = json.loads(sanitized)
+                fallback_response = {
+                    'categoria': str(result.get('categoria', 'Erro')).strip()[:64],
+                    'subtema': str(result.get('subtema', 'Parseamento parcial')).strip()[:128],
+                    'confianca': 'baixa'
+                }
+        except:
+            pass
+
         app.logger.error(f"FALHA PARSING [{error_type}]: {str(e)}\n"
                         f"Texto original: {text[:300]}\n"
-                        f"JSON sanitizado: {sanitized[:500]}\n"
+                        f"JSON sanitizado: {sanitized[:500] if sanitized else 'N/A'}\n"
                         f"{'─'*80}")
-        return error_response(f"Erro {error_type}: {str(e)[:80]}")
+        
+        return fallback_response or error_response(f"Erro {error_type}: {str(e)[:80]}")
 
 def error_response(message):
     return {
         "categoria": "Erro",
         "subtema": str(message)[:100],
-        "confianca": "Baixa"
+        "confianca": "baixa"
     }
 
 if __name__ == '__main__':
