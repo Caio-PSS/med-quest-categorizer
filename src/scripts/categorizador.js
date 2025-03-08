@@ -4,8 +4,8 @@ const axios = require('axios');
 
 const BATCH_SIZE = 500;
 const API_ENDPOINT = 'http://localhost:8888/categorize';
-const API_BATCH_SIZE = 12;  // Aumentar batch size para 24
-const WORKER_POOL = 6;      // Aumentar paralelismo
+const API_BATCH_SIZE = 6;  // Aumentar batch size para 24
+const WORKER_POOL = 2;      // Aumentar paralelismo
 
 const { Semaphore } = require('async-mutex');
 const semaphore = new Semaphore(WORKER_POOL);
