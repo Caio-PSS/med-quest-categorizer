@@ -64,9 +64,17 @@ def categorize():
     try:
         data = request.get_json()
         
-        # Validação reforçada
-        if not data or not isinstance(data.get('categories'), list) or len(data['categories']) == 0:
-            return jsonify({"error": "Lista de categorias inválida"}), 400
+        # Validação aprimorada
+        if not data or not isinstance(data.get('categories'), list):
+            return jsonify({"error": "Formato de categorias inválido"}), 400
+            
+        valid_categories = [
+            c for c in data['categories']
+            if isinstance(c, str) and ' - ' in c
+        ]
+        
+        if len(valid_categories) == 0:
+            return jsonify({"error": "Categorias devem conter subcategorias no formato 'Categoria - Subcategoria'"}), 400
             
         if not isinstance(data.get('questions'), list) or len(data['questions']) == 0:
             return jsonify({"error": "Lista de questões inválida"}), 400
@@ -107,7 +115,7 @@ def process_batch(questions, categories):
     ).to(model.device)
 
     try:
-        with torch.inference_mode(), torch.cuda.amp.autocast():
+        with torch.inference_mode(), torch.amp.autocast(device_type='cuda'):
             outputs = model.generate(
                 **inputs,
                 max_new_tokens=350,
@@ -155,13 +163,14 @@ def build_prompt(question, categories):
     """
 
 def parse_response(text):
+    sanitized = ""
     def repair_json(raw_json):
         repairs = [
-            (r"([{,])\s*'?(.*?)'?\s*:", r'\1"\2":'),  # Aspas simples para duplas
-            (r":\s*'?(.*?)'?\s*([,}])", r': "\1"\2'),  # Valores sem aspas
-            (r'[\x00-\x1f]', ''),                      # Caracteres especiais
-            (r',(\s*[}\]])', r'\1'),                   # Vírgulas finais
-            (r'\\"', '"')                              # Escape incorreto
+            (r'(?<!\\)\\(?!["\\/bfnrt])', ''),    # Remove escapes inválidos
+            (r',\s*}(?=\s*})', '}'),              # Corrige vírgulas finais múltiplas
+            (r'\bNaN\b', 'null'),                 # Substitui NaN por null
+            (r'\s+', ' '),                        # Compacta espaços
+            (r'([{\[,])\s*([}\]])', r'\1\2')      # Remove espaços entre delimitadores
         ]
         
         for pattern, replacement in repairs:
@@ -174,13 +183,19 @@ def parse_response(text):
             
         return raw_json.strip('`').strip()
 
+
     try:
-        # Extração do JSON
-        json_match = re.search(r'{(?:[^{}]|(?R))*}|```json\n(.*?)\n```', text, re.DOTALL)
+        # Nova regex mais robusta
+        json_match = re.search(
+            r'```json\s*({.*?})\s*```|({.*?})', 
+            text, 
+            re.DOTALL | re.IGNORECASE
+        )
+        
         if not json_match:
             raise ValueError("Nenhum JSON detectado")
             
-        raw_json = json_match.group(1) if json_match.group(1) else json_match.group(0)
+        raw_json = json_match.group(1)
         sanitized = repair_json(raw_json)
 
         # Decodificação e validação
