@@ -72,8 +72,16 @@ if (isMainThread) {
   }
 
   async function sendToAPI(questions) {
-    const categories = require('../config/categorias.json');
-    const responses = [];
+    const rawCategories = require('../config/categorias.json');
+    
+    // Validação das categorias
+    const categories = Array.isArray(rawCategories) 
+        ? rawCategories.filter(c => typeof c === 'string') 
+        : [];
+    
+    if (categories.length === 0) {
+        throw new Error('Lista de categorias inválida ou vazia');
+    }
     
     for (let i = 0; i < questions.length; i += API_BATCH_SIZE) {
       const batch = questions.slice(i, i + API_BATCH_SIZE);

@@ -64,9 +64,12 @@ def categorize():
     try:
         data = request.get_json()
         
-        # Validação reforçada do payload
-        if not data or not isinstance(data.get('questions'), list) or not isinstance(data.get('categories'), list):
-            return jsonify({"error": "Estrutura do payload inválida"}), 400
+        # Validação reforçada
+        if not data or not isinstance(data.get('categories'), list) or len(data['categories']) == 0:
+            return jsonify({"error": "Lista de categorias inválida"}), 400
+            
+        if not isinstance(data.get('questions'), list) or len(data['questions']) == 0:
+            return jsonify({"error": "Lista de questões inválida"}), 400
             
         if len(data['questions']) > 100:
             return jsonify({"error": "Máximo de 100 questões por requisição"}), 413
