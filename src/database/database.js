@@ -16,7 +16,7 @@ if (isProduction) {
 }
 
 // Conexão otimizada
-const db = new sqlite3('/workspace/database/questoes_medicas.db');
+const db = new sqlite3('/med-quest-categorizer/src/database/questoes_medicas.db');
 
 // Otimizações
 db.pragma('journal_mode = WAL');
