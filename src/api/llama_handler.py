@@ -116,44 +116,75 @@ def process_batch(questions, categories):
 def build_prompt(question, categories):
     return f"""<s>[INST]
     ### Tarefa:
-    Classifique esta questão médica usando APENAS estas categorias:
-
-    ### Dados:
+    Gere um JSON válido classificando a questão médica usando EXCLUSIVAMENTE as categorias fornecidas.
+    
+    ### Instruções:
+    1. Use apenas as categorias listadas
+    2. Mantenha o JSON em uma única linha
+    3. Formato obrigatório:
+        {{{{
+            "categoria": "Nome da Categoria",
+            "subtema": "Subcategoria Específica",
+            "confianca": "Alta/Media/Baixa"
+        }}}}
+    
+    ### Dados da Questão:
     Enunciado: {question.get('enunciado', '')}
     Alternativas: {", ".join(question.get('alternativas', []))}
     Explicação: {question.get('explicacao', '')}
-
-    ### Categorias:
-    {json.dumps(categories, indent=4)}
-
-    ### Formato:
-    {{
-        "categoria": "Categoria Principal",
-        "subtema": "Subcategoria",
-        "confianca": "Alta/Media/Baixa"
-    }}
-    [/INST]</s>"""
+    
+    ### Categorias Disponíveis:
+    {json.dumps(categories, indent=4, ensure_ascii=False)}
+    [/INST]
+    {{"categoria": "","subtema": "","confianca": ""}}  # Preencher aqui
+    """
 
 def parse_response(text):
     try:
-        # Extração melhorada do JSON
+        # Etapa 1: Limpeza e normalização do texto
         text = text.split('[/INST]')[-1].strip()
-        json_str = re.search(r'\{[\s\S]*\}', text).group()
+        text = text.replace("'", "\"")  # Converter aspas simples para duplas
         
-        # Validação de campos obrigatórios
+        # Etapa 2: Busca do JSON com múltiplos padrões
+        json_str = None
+        patterns = [
+            r'\{[\s\S]*\}',  # Padrão original
+            r'```json\n([\s\S]*?)\n```',  # Captura blocos JSON com code fences
+            r'{(.*:.*)+}'  # Padrão mais simples para objetos JSON
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                json_str = match.group()
+                if pattern == r'```json\n([\s\S]*?)\n```':
+                    json_str = match.group(1)
+                break
+
+        if not json_str:
+            raise ValueError("Nenhum JSON encontrado na resposta")
+
+        # Etapa 3: Validação e correção do JSON
+        json_str = json_str.replace("True", "true").replace("False", "false")
+        json_str = re.sub(r',\s*}', '}', json_str)  # Corrigir vírgulas finais
+        json_str = re.sub(r',\s*]', ']', json_str)
+
         result = json.loads(json_str)
-        if not all(key in result for key in ['categoria', 'subtema', 'confianca']):
-            raise ValueError("Campos obrigatórios ausentes")
-            
-        # Normalização dos valores
+        
+        # Etapa 4: Validação de campos com fallback
         return {
-            "categoria": str(result.get("categoria", "Erro"))[:64],
-            "subtema": str(result.get("subtema", "Sem subtema"))[:128],
-            "confianca": str(result.get("confianca", "Baixa")).lower()[:16]
+            "categoria": str(result.get("categoria", "Erro")).strip()[:64],
+            "subtema": str(result.get("subtema", "Sem subtema")).strip()[:128],
+            "confianca": str(result.get("confianca", "Baixa")).lower().strip()[:16]
         }
+        
     except Exception as e:
-        app.logger.error(f"Erro de parsing: {str(e)} - Texto original: {text[:200]}...")
-        return error_response(f"Erro de formatação: {str(e)}")
+        app.logger.error(f"Erro de parsing: {str(e)}\nTexto original: {text[:500]}\n{'─'*80}")
+        return {
+            "categoria": "Erro",
+            "subtema": f"Falha na análise: {str(e)[:100]}",
+            "confianca": "Baixa"
+        }
 
 def error_response(message):
     return {
