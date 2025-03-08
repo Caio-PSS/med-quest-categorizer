@@ -74,11 +74,11 @@ if (isMainThread) {
   async function sendToAPI(questions) {
     const rawCategories = require('../config/categorias.json');
     
-    // Validação das categorias
-    const categories = Array.isArray(rawCategories) 
-        ? rawCategories.filter(c => typeof c === 'string') 
-        : [];
-    
+    // Transformar a estrutura hierárquica em array plano de subcategorias
+    const categories = Object.entries(rawCategories).flatMap(
+        ([mainCat, subCats]) => subCats.map(sub => `${mainCat} - ${sub}`)
+    );
+
     if (categories.length === 0) {
         throw new Error('Lista de categorias inválida ou vazia');
     }

@@ -149,7 +149,7 @@ def build_prompt(question, categories):
     Alternativas: {json.dumps([clean_text(a, 100) for a in question.get('alternativas', [])])[:400]}
     Explicação: {clean_text(question.get('explicacao', ''), 500)}
 
-    ### CATEGORIAS PERMITIDAS:
+    ### CATEGORIAS E SUBCATEGORIAS PERMITIDAS:
     {json.dumps(categories, indent=2, ensure_ascii=False)[:1500]}
     [/INST]
     """
