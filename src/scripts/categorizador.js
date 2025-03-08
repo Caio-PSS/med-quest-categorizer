@@ -82,7 +82,9 @@ if (isMainThread) {
     if (categories.length === 0) {
         throw new Error('Lista de categorias inválida ou vazia');
     }
-    
+
+    const responses = []; // ← CORREÇÃO AQUI: Inicializar o array
+
     for (let i = 0; i < questions.length; i += API_BATCH_SIZE) {
       const batch = questions.slice(i, i + API_BATCH_SIZE);
       try {
