@@ -144,6 +144,11 @@ def build_prompt(question, categories):
     ### INSTRUÇÃO CRÍTICA:
     Gere APENAS UM JSON válido seguindo as regras abaixo, sem comentários ou explicações
 
+    ### REGRAS:
+    - NÃO inclua texto adicional
+    - Use EXCLUSIVAMENTE categorias listadas
+    - Formate corretamente o JSON
+
     ### FORMATO EXIGIDO:
     {{
         "categoria": "Categoria Principal",
@@ -166,14 +171,14 @@ def parse_response(text):
     
     def repair_json(raw_json):
         repairs = [
-            (r'(?<!\\)\\(?!["\\/bfnrt])', ''),  # Remove escapes inválidos
-            (r'(?<=\})\s*(?=\{)', ', '),        # Corrige múltiplos JSONs
-            (r'\\"', '"'),                      # Corrige aspas escapadas
-            (r'[\x00-\x1f]', ''),               # Remove caracteres de controle
-            (r'//.*?\n', ''),                   # Remove comentários
-            (r'\bNaN\b', 'null'),               # Substitui NaN
-            (r'\s+', ' '),                      # Compacta espaços
-            (r'([{\[,])\s*([}\]])', r'\1\2')    # Remove espaços entre delimitadores
+            (r'(?<!\\)\\(?!["\\/bfnrt])', ''),
+            (r'(?<=[\w\]"])\s*(?={)', ', '),  # Corrige JSONs concatenados
+            (r'\\"', '"'),
+            (r'[\x00-\x1f]', ''),
+            (r'(?<!\\)\/(?![\'"])', ''),  # Remove barras não escapadas
+            (r'\bundefined\b', 'null'),
+            (r',\s*]', ']'),  # Remove vírgulas finais em arrays
+            (r',\s*}', '}')   # Remove vírgulas finais em objetos
         ]
         
         for pattern, replacement in repairs:
@@ -192,8 +197,9 @@ def parse_response(text):
         
         # Etapa 2: Extração precisa
         json_match = re.search(
-            r'(?s)\{(?:[^{}]|(?R))*\}\s*$',
-            text
+            r'\{[^{}]*\{.*?\}[^{}]*\}|{.*?}',  # Captura JSONs simples ou aninhados
+            text,
+            re.DOTALL
         )
         
         if not json_match:
@@ -207,6 +213,9 @@ def parse_response(text):
         result, idx = decoder.raw_decode(sanitized)
         if idx < len(sanitized):
             raise ValueError("Dados extras após JSON principal")
+
+        if text.count('{') != text.count('}'):
+            text += '}' * (text.count('{') - text.count('}'))
 
         # Validação de campos
         required_keys = {'categoria', 'subtema', 'confianca'}
@@ -226,28 +235,28 @@ def parse_response(text):
         
     except Exception as e:
         error_type = type(e).__name__
-        fallback = None
-        
-        # Tentativa de recuperação profunda
-        try:
-            last_json = re.findall(r'\{.*?\}', text, re.DOTALL)
-            if last_json:
-                sanitized = repair_json(last_json[-1])
+    
+    # Tentar extrair último JSON válido
+        candidates = re.findall(r'\{.*?\}', text, re.DOTALL)
+        for candidate in reversed(candidates):
+            try:
+                sanitized = repair_json(candidate)
                 result = json.loads(sanitized)
-                fallback = {
-                    'categoria': str(result.get('categoria', 'Erro')).strip()[:64],
-                    'subtema': str(result.get('subtema', 'Subcategoria Indefinida')).strip()[:128],
-                    'confianca': 'baixa'
-                }
-        except:
-            pass
-
+                if all(key in result for key in ['categoria', 'subtema', 'confianca']):
+                    return {
+                        'categoria': str(result['categoria'])[:64],
+                        'subtema': str(result['subtema'])[:128],
+                        'confianca': 'baixa'
+                    }
+            except:
+                continue
+            
         app.logger.error(f"FALHA PARSING [{error_type}]: {str(e)}\n"
                         f"Texto original: {text[:300]}\n"
                         f"JSON sanitizado: {sanitized[:500] if sanitized else 'N/A'}\n"
                         f"{'─'*80}")
         
-        return fallback or error_response(f"{error_type}: {str(e)[:80]}")
+        return error_response(f"Falha crítica: {str(e)[:80]}")
 
 def error_response(message):
     return {
