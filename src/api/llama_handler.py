@@ -64,7 +64,7 @@ def categorize():
     try:
         data = request.get_json()
         
-        # Validação aprimorada
+        # Validação reforçada
         if not data or not isinstance(data.get('categories'), list):
             return jsonify({"error": "Formato de categorias inválido"}), 400
             
@@ -141,7 +141,10 @@ def build_prompt(question, categories):
         return text.replace('"', "'").replace('\n', ' ').strip()[:max_length]
     
     return f"""<s>[INST]
-    ### FORMATO EXATO REQUERIDO:
+    ### INSTRUÇÃO CRÍTICA:
+    Gere APENAS UM JSON válido seguindo as regras abaixo, sem comentários ou explicações
+
+    ### FORMATO EXIGIDO:
     {{
         "categoria": "Categoria Principal",
         "subtema": "Subcategoria Específica",
@@ -155,23 +158,26 @@ def build_prompt(question, categories):
 
     ### CATEGORIAS VÁLIDAS:
     {', '.join(sorted(set(categories)))[:1200]}
-    [/INST]"""
+    [/INST]
+    Resposta: """
 
 def parse_response(text):
     sanitized = ""
     
     def repair_json(raw_json):
         repairs = [
-            (r'(?<!\\)\\(?!["\\/bfnrt])', ''),
-            (r',\s*}(?=\s*})', '}'),
-            (r'\bNaN\b', 'null'),
-            (r'\s+', ' '),
-            (r'([{\[,])\s*([}\]])', r'\1\2'),
-            (r"'", '"')
+            (r'(?<!\\)\\(?!["\\/bfnrt])', ''),  # Remove escapes inválidos
+            (r'(?<=\})\s*(?=\{)', ', '),        # Corrige múltiplos JSONs
+            (r'\\"', '"'),                      # Corrige aspas escapadas
+            (r'[\x00-\x1f]', ''),               # Remove caracteres de controle
+            (r'//.*?\n', ''),                   # Remove comentários
+            (r'\bNaN\b', 'null'),               # Substitui NaN
+            (r'\s+', ' '),                      # Compacta espaços
+            (r'([{\[,])\s*([}\]])', r'\1\2')    # Remove espaços entre delimitadores
         ]
         
         for pattern, replacement in repairs:
-            raw_json = re.sub(pattern, replacement, raw_json)
+            raw_json = re.sub(pattern, replacement, raw_json, flags=re.IGNORECASE)
             
         open_braces = raw_json.count('{') - raw_json.count('}')
         if open_braces > 0:
@@ -180,48 +186,57 @@ def parse_response(text):
         return raw_json.strip('`').strip()
 
     try:
-        # Pré-processamento
-        text = re.sub(r'```json|```|\*+', '', text)
-        text = text.replace('\\"', "'")
+        # Etapa 1: Isolar o JSON da resposta
+        text = re.sub(r'.*?(\{.*\}).*', r'\1', text, flags=re.DOTALL)
+        text = re.sub(r'\\u([\da-fA-F]{4})', lambda m: chr(int(m.group(1), 16)), text)
         
-        # Extração de JSON
-        json_match = re.search(r'\{[\s\S]*\}', text, re.DOTALL)
+        # Etapa 2: Extração precisa
+        json_match = re.search(
+            r'(?s)\{(?:[^{}]|(?R))*\}\s*$',
+            text
+        )
         
         if not json_match:
-            raise ValueError("Nenhuma estrutura JSON detectada")
+            raise ValueError("Nenhum JSON detectado")
             
         raw_json = json_match.group(0)
         sanitized = repair_json(raw_json)
 
-        # Validação
-        result = json.loads(sanitized)
-        
-        if not all(key in result for key in ['categoria', 'subtema', 'confianca']):
-            raise ValueError("Campos obrigatórios ausentes")
-            
+        # Etapa 3: Decodificação estrita
+        decoder = json.JSONDecoder()
+        result, idx = decoder.raw_decode(sanitized)
+        if idx < len(sanitized):
+            raise ValueError("Dados extras após JSON principal")
+
+        # Validação de campos
+        required_keys = {'categoria', 'subtema', 'confianca'}
+        if not required_keys.issubset(result.keys()):
+            raise ValueError(f"Campos obrigatórios ausentes: {required_keys - result.keys()}")
+
         # Normalização
         confianca = str(result['confianca']).lower().strip()
-        if confianca not in ['alta', 'media', 'baixa']:
+        if confianca not in {'alta', 'media', 'baixa'}:
             confianca = 'baixa'
-            
+
         return {
             'categoria': str(result['categoria']).strip()[:64],
             'subtema': str(result['subtema']).strip()[:128],
-            'confianca': confianca[:5]
+            'confianca': confianca
         }
         
     except Exception as e:
         error_type = type(e).__name__
-        fallback_response = None
+        fallback = None
         
+        # Tentativa de recuperação profunda
         try:
-            last_part = re.search(r'\{.*', text, re.DOTALL)
-            if last_part:
-                sanitized = repair_json(last_part.group(0))
+            last_json = re.findall(r'\{.*?\}', text, re.DOTALL)
+            if last_json:
+                sanitized = repair_json(last_json[-1])
                 result = json.loads(sanitized)
-                fallback_response = {
+                fallback = {
                     'categoria': str(result.get('categoria', 'Erro')).strip()[:64],
-                    'subtema': str(result.get('subtema', 'Parseamento parcial')).strip()[:128],
+                    'subtema': str(result.get('subtema', 'Subcategoria Indefinida')).strip()[:128],
                     'confianca': 'baixa'
                 }
         except:
@@ -232,7 +247,7 @@ def parse_response(text):
                         f"JSON sanitizado: {sanitized[:500] if sanitized else 'N/A'}\n"
                         f"{'─'*80}")
         
-        return fallback_response or error_response(f"Erro {error_type}: {str(e)[:80]}")
+        return fallback or error_response(f"{error_type}: {str(e)[:80]}")
 
 def error_response(message):
     return {
