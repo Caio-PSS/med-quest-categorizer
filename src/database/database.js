@@ -16,10 +16,7 @@ if (isProduction) {
 }
 
 // Conexão otimizada
-const db = sqlite3(dbPath, {
-  verbose: console.log,
-  timeout: 5000
-});
+const db = new sqlite3('/workspace/database/questoes_medicas.db');
 
 // Otimizações
 db.pragma('journal_mode = WAL');
